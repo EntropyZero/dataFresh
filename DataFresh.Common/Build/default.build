@@ -5,7 +5,6 @@
 	<target name="build" description="Build all targets.">
 		<call target="ClearFolders"/>
 		<call target="Generate.Version.Files"/>
-		<call target="Deploy.SourceCode"/>
 		<call target="Build.Solution"/>
 		<call target="Database.Create"/>
 		<call target="NUnit"/>
@@ -111,34 +110,13 @@
 		</exec>
 		
     </target>
-
-    <target name="Deploy.SourceCode">
-
-		<delete dir="${output.dir}" failonerror="false" />
-		<mkdir dir="${output.dir}\Package" failonerror="false" />
-		<mkdir dir="${output.dir}\Package\Src" failonerror="false" />
-		
-		<copy todir="${output.dir}\Package\Src" overwrite="true">
-			<fileset basedir="${CCNetWorkingDirectory}">
-				<include name="**" />
-			</fileset>
-		</copy>
-		
-		<delete failonerror="true">
-			<fileset basedir="${output.dir}\Package\Src">
-				<include name="**/bin/**" />
-				<include name="**/obj/**" />
-			</fileset>		
-		</delete>
-	
-    </target>
-        
+       
     <target name="Deploy">
 
-		<delete dir="${output.dir}\Package\Bin" failonerror="false" />
-		<mkdir dir="${output.dir}\Package\Bin" failonerror="false" />
+		<delete dir="${output.dir}\Package" failonerror="false" />
+		<mkdir dir="${output.dir}\Package" failonerror="false" />
 		
-		<copy todir="${output.dir}\Package\Bin" overwrite="true">
+		<copy todir="${output.dir}\Package" overwrite="true">
 			<fileset basedir="${CCNetWorkingDirectory}\DataFreshUtil\bin\${configuration}">
 				<include name="*.dll" />
 				<include name="*.exe" />
