@@ -163,7 +163,7 @@ AS
 	DECLARE @CMD NVARCHAR(4000)
 	
 	DECLARE Table_Cursor CURSOR FOR
-		SELECT N'bcp ' + DB_NAME() + '.dbo.[' + Table_Name + '] out "' + @BasePath + Table_Name + '.df" -n -k -E -C 1252 -S ' + @@ServerName + ' -T' FROM Information_Schema.tables WHERE table_type = 'BASE TABLE'
+		SELECT N'bcp "' + DB_NAME() + '.dbo.[' + Table_Name + ']" out "' + @BasePath + Table_Name + '.df" -n -k -E -C 1252 -S ' + @@ServerName + ' -T' FROM Information_Schema.tables WHERE table_type = 'BASE TABLE'
 
 	OPEN Table_Cursor
 	FETCH NEXT FROM Table_Cursor INTO @CMD
@@ -208,7 +208,7 @@ AS
 
 	-- Delete All data from Changed Tables and Refill
 	DECLARE UserTable_Cursor CURSOR FOR
-		SELECT [tablename] FROM #UserTables WHERE tablename <> 'df_ChangeTracking'
+		SELECT [tablename] FROM #UserTables WHERE tablename not in ('df_ChangeTracking', 'dr_DeltaVersion')
 
 	OPEN UserTable_Cursor
 
