@@ -300,6 +300,19 @@ namespace Testing.DataFresh
 			dataFresh.RefreshTheDatabase();
 		}
 
+		[Test]
+		public void ShouldNotRefreshDeltaRunnerTable()
+		{
+			InitializeTheDatabase();
+			SqlDataFresh dataFresh = new SqlDataFresh(connectionString);
+			dataFresh.RemoveDataFreshFromDatabase();
+			dataFresh.PrepareDatabaseforDataFresh(true);
+			ExecuteNonQuery("insert into [dr_deltaversion] ([latestdelta], [hash], [filename]) values (99, 'blah-hash', 'whatever file');");
+			Assert.AreEqual(1, ExecuteScalar("select count(*) from [dr_deltaversion] where [filename] = 'whatever file'"));
+			dataFresh.RefreshTheDatabase();
+			Assert.AreEqual(1, ExecuteScalar("select count(*) from [dr_deltaversion] where [filename] = 'whatever file'"));
+		}
+
 		private void InitializeTheDatabase()
 		{
 			SqlDeltaRunner deltaRunner = new SqlDeltaRunner(connectionString, new DirectoryInfo(deltaPath).FullName, true);

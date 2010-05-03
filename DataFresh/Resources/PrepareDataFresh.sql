@@ -62,7 +62,7 @@ AS
 
 	-- Delete All data from Changed Tables and Refill
 	DECLARE ChangedTable_Cursor CURSOR FOR
-		SELECT [tablename] FROM #ChangedTables WHERE tablename <> 'df_ChangeTracking'
+		SELECT [tablename] FROM #ChangedTables WHERE tablename not in('df_ChangeTracking', 'dr_DeltaVersion')
 
 	OPEN ChangedTable_Cursor
 	FETCH NEXT FROM ChangedTable_Cursor INTO @TableName
