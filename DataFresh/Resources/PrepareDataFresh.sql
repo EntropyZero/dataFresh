@@ -24,8 +24,8 @@ GO
 
 CREATE TABLE [dbo].[df_ChangeTracking]
 	(
-		[TABLENAME] sysname,
-		[TABLESCHEMA] sysname
+		[TABLESCHEMA] sysname,
+		[TABLENAME] sysname
 	)
 GO
 	
@@ -35,20 +35,20 @@ CREATE PROCEDURE dbo.[df_ChangedTableDataRefresh]
 )
 AS
 
-	DECLARE @sql NVARCHAR(4000)
-	DECLARE @TableName VARCHAR(255)
+	DECLARE @sql NVARCHAR(4000)	
 	DECLARE @TableSchema VARCHAR(255)
+	DECLARE @TableName VARCHAR(255)
 
-	SELECT DISTINCT TableName, TableSchema INTO #ChangedTables FROM df_ChangeTracking
+	SELECT DISTINCT TableSchema, TableName INTO #ChangedTables FROM df_ChangeTracking
 
 	TRUNCATE TABLE df_ChangeTracking
 
 	DECLARE Table_Cursor INSENSITIVE SCROLL CURSOR FOR
-		SELECT [tablename], [tableschema] from #ChangedTables
+		SELECT [tableschema], [tablename] from #ChangedTables
 		UNION
-		SELECT DISTINCT 
-				OBJECT_NAME(fkeyid) AS Referenced_Table_Name,
-				OBJECT_SCHEMA_NAME(fkeyid) AS Referenced_Table_Schema
+		SELECT DISTINCT
+				OBJECT_SCHEMA_NAME(fkeyid) AS Referenced_Table_Schema,
+				OBJECT_NAME(fkeyid) AS Referenced_Table_Name
 		FROM 
 			sysreferences sr
 			INNER JOIN #ChangedTables ct ON sr.rkeyid = OBJECT_ID(ct.tablename)
@@ -56,22 +56,22 @@ AS
 	OPEN Table_Cursor
 
 	-- Deactivate Constrains for tables referencing changed tables
-	FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			SET @sql = N'Alter Table [' + @TableSchema + '].[' + @TableName + '] NOCHECK CONSTRAINT ALL'
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 	END
 
 	-- Delete All data from Changed Tables and Refill
 	DECLARE ChangedTable_Cursor CURSOR FOR
-		SELECT [tablename], [tableschema] FROM #ChangedTables WHERE tablename not in('df_ChangeTracking', 'dr_DeltaVersion')
+		SELECT [tableschema], [tablename] FROM #ChangedTables WHERE tablename not in('df_ChangeTracking', 'dr_DeltaVersion')
 
 	OPEN ChangedTable_Cursor
-	FETCH NEXT FROM ChangedTable_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM ChangedTable_Cursor INTO @TableSchema, @TableName
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			PRINT @TableName
@@ -96,19 +96,19 @@ AS
 					)'
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM ChangedTable_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM ChangedTable_Cursor INTO @TableSchema, @TableName
 	END
 	CLOSE ChangedTable_Cursor
 	DEALLOCATE ChangedTable_Cursor
 
 	-- ReEnable Constrants for All Tables
-	FETCH FIRST FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH FIRST FROM Table_Cursor INTO @TableSchema, @TableName
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			SET @sql = N'Alter Table [' + @TableSchema + '].[' + @TableName + '] CHECK CONSTRAINT ALL'
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 	END
 	CLOSE Table_Cursor
 	DEALLOCATE Table_Cursor
@@ -121,19 +121,19 @@ AS
 	IF NOT EXISTS (SELECT * FROM dbo.sysobjects WHERE id = object_id(N'[dbo].[df_ChangeTracking]') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
 	CREATE TABLE [df_ChangeTracking]
 	(
-		[TABLENAME] sysname,
-		[TABLESCHEMA] sysname
+		[TABLESCHEMA] sysname,
+		[TABLENAME] sysname
 	)
 
 	DECLARE @sql NVARCHAR(4000)
-	DECLARE @TableName VARCHAR(255)
 	DECLARE @TableSchema VARCHAR(255)
+	DECLARE @TableName VARCHAR(255)
 
 	DECLARE Table_Cursor CURSOR FOR
-		SELECT [table_name], [table_schema] FROM information_schema.tables WHERE table_type = 'BASE TABLE' 
+		SELECT [table_schema], [table_name] FROM information_schema.tables WHERE table_type = 'BASE TABLE' 
 
 	OPEN Table_Cursor
-	FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
@@ -144,12 +144,12 @@ AS
 			SET @sql = N'CREATE TRIGGER [' + @TableSchema + '].[trig_df_ChangeTracking_' + @TableName + '] on [' + @TableSchema + '].[' + @TableName + '] for insert, update, delete
 			as
 			SET NOCOUNT ON
-			INSERT INTO df_ChangeTracking (tablename, tableschema) VALUES (''' + @TableName + ''', ''' + @TableSchema + ''')
+			INSERT INTO df_ChangeTracking (tableschema, tablename) VALUES (''' + @TableSchema + ''', ''' + @TableName + ''')
 			SET NOCOUNT OFF' 
 			
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	END
 	CLOSE Table_Cursor
@@ -194,34 +194,34 @@ CREATE PROCEDURE dbo.[df_TableDataImport]
 AS
 
 	DECLARE @sql NVARCHAR(4000)
-	DECLARE @TableName VARCHAR(255)
 	DECLARE @TableSchema VARCHAR(255)
+	DECLARE @TableName VARCHAR(255)	
 
-	SELECT Table_Name as TableName, Table_Schema as TableSchema INTO #UserTables FROM Information_Schema.tables WHERE table_type = 'BASE TABLE'
+	SELECT Table_Schema as TableSchema, Table_Name as TableName INTO #UserTables FROM Information_Schema.tables WHERE table_type = 'BASE TABLE'
 
 	DECLARE Table_Cursor INSENSITIVE SCROLL CURSOR FOR
-		SELECT [tablename], [tableschema] FROM #UserTables
+		SELECT [tableschema], [tablename] FROM #UserTables
 
 	OPEN Table_Cursor
 
 	-- Deactivate Constrains for tables referencing changed tables
-	FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			SET @sql = N'Alter Table [' + @TableSchema + '].[' + @TableName + '] NOCHECK CONSTRAINT ALL'
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 	END
 
 	-- Delete All data from Changed Tables and Refill
 	DECLARE UserTable_Cursor CURSOR FOR
-		SELECT [tablename], [tableschema] FROM #UserTables WHERE tablename not in ('df_ChangeTracking', 'dr_DeltaVersion') and tableschema <> 'dbo'
+		SELECT [tableschema], [tablename] FROM #UserTables WHERE tablename not in ('df_ChangeTracking', 'dr_DeltaVersion')
 
 	OPEN UserTable_Cursor
 
-	FETCH NEXT FROM UserTable_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM UserTable_Cursor INTO @TableSchema, @TableName
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			PRINT @TableSchema + '.' + @TableName
@@ -238,20 +238,20 @@ AS
 					)'
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM UserTable_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM UserTable_Cursor INTO @TableSchema, @TableName
 
 	END
 	CLOSE UserTable_Cursor
 	DEALLOCATE UserTable_Cursor
 
 	-- ReEnable Constrants for All Tables
-	FETCH FIRST FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH FIRST FROM Table_Cursor INTO @TableSchema, @TableName
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
 			SET @sql = N'Alter Table [' + @TableSchema + '].[' + @TableName + '] CHECK CONSTRAINT ALL'
 			EXEC sp_executesql @sql
 			
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 	END
 
 	CLOSE Table_Cursor
@@ -262,14 +262,14 @@ GO
 CREATE PROCEDURE dbo.[df_ChangeTrackingTriggerRemove]
 AS
 	DECLARE @sql NVARCHAR(4000)
-	DECLARE @TableName VARCHAR(255)
 	DECLARE @TableSchema VARCHAR(255)
+	DECLARE @TableName VARCHAR(255)
 
 	DECLARE Table_Cursor CURSOR FOR
-		SELECT [table_name], [table_schema] FROM information_schema.tables WHERE table_type = 'BASE TABLE'
+		SELECT [table_schema], [table_name] FROM information_schema.tables WHERE table_type = 'BASE TABLE'
 
 	OPEN Table_Cursor
-	FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+	FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	WHILE (@@Fetch_Status = 0)
 	BEGIN
@@ -278,7 +278,7 @@ AS
 			
 			EXEC sp_executesql @sql
 
-			FETCH NEXT FROM Table_Cursor INTO @TableName, @TableSchema
+			FETCH NEXT FROM Table_Cursor INTO @TableSchema, @TableName
 
 	END
 	CLOSE Table_Cursor
