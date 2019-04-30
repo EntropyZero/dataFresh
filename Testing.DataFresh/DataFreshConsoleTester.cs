@@ -1,12 +1,29 @@
 using DataFresh;
 using NUnit.Framework;
+using System.IO;
 
 namespace Testing.DataFresh
 {
 	[TestFixture]
 	public class DataFreshConsoleTester
 	{
-		[SetUp]
+        readonly string userId;
+        readonly string password;
+        readonly string server;
+                     
+        public DataFreshConsoleTester()
+        {
+            var doc = new System.Xml.XmlDocument();
+            doc.Load(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location), @"..\..\..\TestConnectionStrings.xml"));
+            //connectionString = connectionString =
+            //    string.Format(doc.SelectSingleNode("/connectionStrings/sqlDataFreshSampleConnectionStringTemplate").InnerText,
+            userId = doc.SelectSingleNode("/connectionStrings/properties/userId").InnerText;
+            password = doc.SelectSingleNode("/connectionStrings/properties/password").InnerText;
+            server = doc.SelectSingleNode("/connectionStrings/properties/server").InnerText;
+                    //doc.SelectSingleNode("/connectionStrings/properties/pooling").InnerText);
+        }
+
+        [SetUp]
 		public void Setup()
 		{
 			ExecuteDataFreshConsole("PREPARE");
@@ -60,11 +77,11 @@ namespace Testing.DataFresh
 			ExecuteDataFreshConsole("REFRESH");
 		}
 
-		[Test, ExpectedException(typeof (SqlDataFreshException))]
+		[Test]
 		public void RefreshWithoutPrepareCommand()
 		{
 			ExecuteDataFreshConsole("REMOVE");
-			ExecuteDataFreshConsole("REFRESH");
+            Assert.Throws<SqlDataFreshException>(() => ExecuteDataFreshConsole("REFRESH"));
 		}
 
 		[Test]
@@ -107,9 +124,9 @@ namespace Testing.DataFresh
 			Assert.AreEqual(snapshotPath, console.arguments["sp"]);
 		}
 
-		private static DataFreshConsole ExecuteDataFreshConsole(string command, params string[] options)
+		private DataFreshConsole ExecuteDataFreshConsole(string command, params string[] options)
 		{
-			DataFreshConsole console = DataFreshConsole.Execute(command, "test", "test", "localhost", "DataFreshSample", options);
+			DataFreshConsole console = DataFreshConsole.Execute(command, userId, password, server, "DataFreshSample", options);
 			return console;
 		}
 	}
