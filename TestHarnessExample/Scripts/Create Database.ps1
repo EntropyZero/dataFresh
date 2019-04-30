@@ -1,5 +1,9 @@
-osql.exe -S 127.0.0.1 -U test -P test -d DataFreshSample -i database.sql
+Import-Module $PSScriptRoot\CredentialReader.psm1
 
-DataFreshUtil.exe -s 127.0.0.1 -u test -p test -d DataFreshSample -c PREPARE
+$creds = Get-Credentials
+
+osql.exe -S $creds.Server -U $creds.UserId -P $creds.Password -d DataFreshSample -i $PSScriptRoot\database.sql
+
+.\DataFreshUtil.exe -s $creds.Server -u $creds.UserId -p $creds.Password -d DataFreshSample -c PREPARE
 
 pause

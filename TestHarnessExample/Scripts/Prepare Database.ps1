@@ -1,3 +1,6 @@
-DataFreshUtil.exe -s 172.17.159.185 -u tf_user -p 1234 -d DataFreshSample -c PREPARE
+Import-Module $PSScriptRoot\CredentialReader.psm1
+
+$creds = Get-Credentials
+.\DataFreshUtil.exe -s $creds.Server -u $creds.UserId -p $creds.Password -d DataFreshSample -c PREPARE
 
 pause

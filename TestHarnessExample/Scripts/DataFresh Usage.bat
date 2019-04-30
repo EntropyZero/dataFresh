@@ -1,2 +1,0 @@
-DataFreshUtil.exe
-pause
