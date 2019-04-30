@@ -7,23 +7,20 @@ namespace Testing.DataFresh
 	[TestFixture]
 	public class DataFreshConsoleTester
 	{
-        readonly string userId;
-        readonly string password;
-        readonly string server;
-                     
-        public DataFreshConsoleTester()
-        {
-            var doc = new System.Xml.XmlDocument();
-            doc.Load(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location), @"..\..\..\TestConnectionStrings.xml"));
-            //connectionString = connectionString =
-            //    string.Format(doc.SelectSingleNode("/connectionStrings/sqlDataFreshSampleConnectionStringTemplate").InnerText,
-            userId = doc.SelectSingleNode("/connectionStrings/properties/userId").InnerText;
-            password = doc.SelectSingleNode("/connectionStrings/properties/password").InnerText;
-            server = doc.SelectSingleNode("/connectionStrings/properties/server").InnerText;
-                    //doc.SelectSingleNode("/connectionStrings/properties/pooling").InnerText);
-        }
+		readonly string userId;
+		readonly string password;
+		readonly string server;
 
-        [SetUp]
+		public DataFreshConsoleTester()
+		{
+			var doc = new System.Xml.XmlDocument();
+			doc.Load(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location), @"..\..\..\TestConnectionStrings.xml"));
+			userId = doc.SelectSingleNode("/connectionStrings/properties/userId").InnerText;
+			password = doc.SelectSingleNode("/connectionStrings/properties/password").InnerText;
+			server = doc.SelectSingleNode("/connectionStrings/properties/server").InnerText;
+		}
+
+		[SetUp]
 		public void Setup()
 		{
 			ExecuteDataFreshConsole("PREPARE");
@@ -38,7 +35,7 @@ namespace Testing.DataFresh
 		[Test]
 		public void NoArgs()
 		{
-			string[] args = new string[] {};
+			string[] args = new string[] { };
 			DataFreshConsole console = new DataFreshConsole();
 			console.Start(args);
 		}
@@ -46,7 +43,7 @@ namespace Testing.DataFresh
 		[Test]
 		public void BlankArgs()
 		{
-			string[] args = new string[] {"", ""};
+			string[] args = new string[] { "", "" };
 			DataFreshConsole console = new DataFreshConsole();
 			console.Start(args);
 		}
@@ -81,7 +78,7 @@ namespace Testing.DataFresh
 		public void RefreshWithoutPrepareCommand()
 		{
 			ExecuteDataFreshConsole("REMOVE");
-            Assert.Throws<SqlDataFreshException>(() => ExecuteDataFreshConsole("REFRESH"));
+			Assert.Throws<SqlDataFreshException>(() => ExecuteDataFreshConsole("REFRESH"));
 		}
 
 		[Test]
@@ -112,7 +109,7 @@ namespace Testing.DataFresh
 			string expectedConnectionString = @"user id=test;password=test;Initial Catalog=DataFreshSample;Data Source=localhost;";
 			Assert.AreEqual(expectedConnectionString, console.connectionString);
 		}
-		
+
 		[Test]
 		public void CheckSnapshotPath()
 		{

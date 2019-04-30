@@ -2,7 +2,7 @@
   <properties>
     <userId>tf_user</userId>
     <password>1234</password>
-    <server>172.17.159.185</server>
+    <server>localhost</server>
     <pooling>false</pooling>
   </properties>
   <sqlMasterDatabaseConnectionStringTemplate>user id={0};password={1};Initial Catalog=master;Server={2};pooling={3};</sqlMasterDatabaseConnectionStringTemplate>
