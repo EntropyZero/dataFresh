@@ -9,11 +9,11 @@ namespace Testing.DataFresh
 	[TestFixture]
 	public class SqlDataFreshTester : TestFixtureBase
 	{
-		[Test, ExpectedException(typeof (InvalidOperationException), "The ConnectionString property has not been initialized.")]
+		[Test]
 		public void PrepDatabaseforDataFresh_NoConnectionString()
 		{
 			SqlDataFresh dataFresh = new SqlDataFresh(null);
-			dataFresh.PrepareDatabaseforDataFresh();
+			Assert.Throws<InvalidOperationException>(() => dataFresh.PrepareDatabaseforDataFresh(), "The ConnectionString property has not been initialized.");
 		}
 
 		[Test]
@@ -315,10 +315,11 @@ namespace Testing.DataFresh
 
 		private void InitializeTheDatabase()
 		{
-			SqlDeltaRunner deltaRunner = new SqlDeltaRunner(connectionString, new DirectoryInfo(deltaPath).FullName, true);
+            var binDir = Path.GetDirectoryName(GetType().Assembly.Location);
+            SqlDeltaRunner deltaRunner = new SqlDeltaRunner(connectionString, Path.Combine(binDir, deltaPath), true);
 			deltaRunner.PrepareForDeltaRunner();
-			deltaRunner.AddSqlFile(new FileInfo(Path.Combine(databaseFilesPath, "Database.sql")),SqlFileExecutionOption.ExecuteBeforeDeltas);
-			deltaRunner.AddSqlFile(new FileInfo(Path.Combine(databaseFilesPath, "Setup.sql")),SqlFileExecutionOption.ExecuteAfterDeltas);
+			deltaRunner.AddSqlFile(new FileInfo(Path.Combine(binDir, databaseFilesPath, "Database.sql")),SqlFileExecutionOption.ExecuteBeforeDeltas);
+			deltaRunner.AddSqlFile(new FileInfo(Path.Combine(binDir, databaseFilesPath, "Setup.sql")),SqlFileExecutionOption.ExecuteAfterDeltas);
 			deltaRunner.ApplyDeltas();
 		}
 	}

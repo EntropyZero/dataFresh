@@ -1,18 +1,29 @@
 using System;
 using System.Data.SqlClient;
+using System.Xml;
 using DataFresh;
 using NUnit.Framework;
+using System.IO;
 
 namespace TestHarnessExample
 {
 	public class TestFixtureBase
 	{
 		public static SqlDataFresh dataFresh = null;
-		public static string connectionString = "user id=test;password=test;Initial Catalog=DataFreshSample;Data Source=(local);";
+        public readonly string connectionString;
 
 		public TestFixtureBase()
 		{
-			if(dataFresh == null)
+            var doc = new XmlDocument();
+            doc.Load(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location), @"..\..\..\TestConnectionStrings.xml"));
+            connectionString = 
+                String.Format(doc.SelectSingleNode("/connectionStrings/sqlDataFreshSampleConnectionStringTemplate").InnerText,
+                    doc.SelectSingleNode("/connectionStrings/properties/userId").InnerText,
+                    doc.SelectSingleNode("/connectionStrings/properties/password").InnerText,
+                    doc.SelectSingleNode("/connectionStrings/properties/server").InnerText,
+                    doc.SelectSingleNode("/connectionStrings/properties/pooling").InnerText);
+
+            if (dataFresh == null)
 			{
 				dataFresh = new SqlDataFresh(connectionString);
 			}
@@ -40,7 +51,7 @@ namespace TestHarnessExample
 
 		#region Data Access Helpers
 
-		public static void ExecuteNonQuery(string sql)
+		public void ExecuteNonQuery(string sql)
 		{
 			using (SqlConnection conn = new SqlConnection(connectionString))
 			{
@@ -50,7 +61,7 @@ namespace TestHarnessExample
 			}
 		}
 
-		public static object ExecuteScalar(string sql)
+		public object ExecuteScalar(string sql)
 		{
 			using (SqlConnection conn = new SqlConnection(connectionString))
 			{
