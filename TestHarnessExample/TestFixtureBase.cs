@@ -53,9 +53,9 @@ namespace TestHarnessExample
 
 		public void ExecuteNonQuery(string sql)
 		{
-			using (SqlConnection conn = new SqlConnection(connectionString))
+			using (var conn = new SqlConnection(connectionString))
 			{
-				SqlCommand cmd = new SqlCommand(sql, conn);
+				var cmd = new SqlCommand(sql, conn);
 				conn.Open();
 				cmd.ExecuteNonQuery();
 			}
@@ -63,9 +63,9 @@ namespace TestHarnessExample
 
 		public object ExecuteScalar(string sql)
 		{
-			using (SqlConnection conn = new SqlConnection(connectionString))
+			using (var conn = new SqlConnection(connectionString))
 			{
-				SqlCommand cmd = new SqlCommand(sql, conn);
+				var cmd = new SqlCommand(sql, conn);
 				conn.Open();
 				return cmd.ExecuteScalar();
 			}

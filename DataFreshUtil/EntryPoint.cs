@@ -20,11 +20,11 @@ using DataFresh;
 
 namespace DataFreshUtil
 {
-	public class EntryPoint
+	static class EntryPoint
 	{
 		public static void Main(string[] args)
 		{
-			DataFreshConsole console = new DataFreshConsole();
+			var console = new DataFreshConsole();
 			console.Start(args);
 		}
 	}

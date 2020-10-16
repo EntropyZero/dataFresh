@@ -17,8 +17,10 @@
 // 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
 
 using System;
+using System.Collections.Generic;
 using System.Data.SqlClient;
-using System.IO;
+using System.Diagnostics;
+using System.Linq;
 using System.Text;
 
 namespace DataFresh
@@ -30,248 +32,412 @@ namespace DataFresh
 	/// </summary>
 	public class SqlDataFresh : IDataFresh
 	{
-		#region Member Variables
+		readonly string connectionString;
+		public const string ChangeTrackingTableName = "df_ChangeTracking";
+		const string SnapshotTableSuffix = "__backup";
 
-		private string connectionString = null;
-		private DirectoryInfo snapshotPath = null;
+		sealed class TableMetadata
+		{
+			public string Schema { get; set; }
+			public string Name { get; set; }
+		}
 
-		private string PrepareScriptResourceName = "DataFresh.Resources.PrepareDataFresh.sql";
-		private string RemoveScriptResourceName = "DataFresh.Resources.RemoveDataFresh.sql";
-
-		public string PrepareProcedureName = "df_ChangeTrackingTriggerCreate";
-		public string RefreshProcedureName = "df_ChangedTableDataRefresh";
-		public string ExtractProcedureName = "df_TableDataExtract";
-		public string ImportProcedureName = "df_TableDataImport";
-		public string ChangeTrackingTableName = "df_ChangeTracking";
-
-		private bool verbose = false;
-
-		#endregion
-
-		#region Public Methods
+		readonly bool verbose;
+		readonly string databaseName;
 
 		public SqlDataFresh(string connectionString)
 		{
 			this.connectionString = connectionString;
+			var connectionBuilder = new SqlConnectionStringBuilder(connectionString);
+			databaseName = connectionBuilder.InitialCatalog;
 		}
 
 		public SqlDataFresh(string connectionString, bool verbose)
+			: this(connectionString)
 		{
-			this.connectionString = connectionString;
 			this.verbose = verbose;
 		}
 
-		public bool TableExists(string tableName)
+		public void PrepareDatabaseForDataFresh()
 		{
-			int tableCount = Int32.Parse(ExecuteScalar(string.Format("SELECT COUNT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='{0}'", tableName)).ToString());
-			return (tableCount > 0);
+			PrepareDatabaseForDataFresh(true);
 		}
 
-		public bool ProcedureExists(string procedureName)
+		public void PrepareDatabaseForDataFresh(bool createSnapshot)
 		{
-			int procedureCount = Int32.Parse(ExecuteScalar(string.Format("SELECT COUNT(ROUTINE_NAME) FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_NAME='{0}'", procedureName)).ToString());
-			return (procedureCount > 0);
-		}
-
-		#endregion
-
-		#region IDataFresh Members
-
-		/// <summary>
-		/// prepare the database to use the dataFresh library
-		/// </summary>
-		public void PrepareDatabaseforDataFresh()
-		{
-			PrepareDatabaseforDataFresh(true);
-		}
-
-		public void PrepareDatabaseforDataFresh(bool createSnapshot)
-		{
-			DateTime before = DateTime.Now;
-			ConsoleWrite("PrepareDatabaseforDataFresh Started");
-			RunSqlScript(ResourceManagement.GetDecryptedResourceStream(PrepareScriptResourceName));
-
-			ExecuteNonQuery("exec " + PrepareProcedureName);
-
-			if(createSnapshot)
+			var mode = createSnapshot ? "(with snapshot creation)" : string.Empty;
+			Execute($"Prepare database{mode}", () =>
 			{
-				CreateSnapshot();
-			}
-			ConsoleWrite("PrepareDatabaseforDataFresh Complete : " + (DateTime.Now - before));
+				PrepareDataFresh();
+
+				if (createSnapshot)
+					CreateSnapshot();
+			});
 		}
 
-		/// <summary>
-		/// remove the dataFresh objects from a database
-		/// </summary>
-		public void RemoveDataFreshFromDatabase()
-		{
-			DateTime before = DateTime.Now;
-			ConsoleWrite("RemoveDataFreshFromDatabase Started");
-			RunSqlScript(ResourceManagement.GetDecryptedResourceStream(RemoveScriptResourceName));
-			ConsoleWrite("RemoveDataFreshFromDatabase Complete : " + (DateTime.Now - before));
-		}
-
-		/// <summary>
-		/// refresh the database to a known state
-		/// </summary>
-		public void RefreshTheDatabase()
-		{
-			DateTime before = DateTime.Now;
-			ConsoleWrite("RefreshTheDatabase Started");
-			if (!ProcedureExists(RefreshProcedureName))
-			{
-				throw new SqlDataFreshException("DataFresh procedure not found. Please prepare the database.");
-			}
-			ExecuteNonQuery(string.Format("exec {0} '{1}'", RefreshProcedureName, SnapshotPath.FullName));
-			ConsoleWrite("RefreshTheDatabase Complete : " + (DateTime.Now - before));
-		}
-
-		/// <summary>
-		/// refresh the database ignoring the dataFresh change tracking table.
-		/// </summary>
-		public void RefreshTheEntireDatabase()
-		{
-			DateTime before = DateTime.Now;
-			ConsoleWrite("RefreshTheEntireDatabase Started");
-			if (!ProcedureExists(ImportProcedureName))
-			{
-				throw new SqlDataFreshException("DataFresh procedure not found. Please prepare the database.");
-			}
-			ExecuteNonQuery(string.Format("exec {0} '{1}'", ImportProcedureName, SnapshotPath.FullName));
-			ConsoleWrite("RefreshTheEntireDatabase Complete : " + (DateTime.Now - before));
-		}
-
-		/// <summary>
-		/// create snapshot of database
-		/// </summary>
 		public void CreateSnapshot()
 		{
-			DateTime before = DateTime.Now;
-			ConsoleWrite("CreateSnapshot Started");
-			if (!ProcedureExists(ExtractProcedureName))
+			GuardDatabaseIsPrepared();
+			Execute("Create snapshot", () =>
 			{
-				throw new SqlDataFreshException("DataFresh procedure not found. Please prepare the database.");
-			}
-			ExecuteNonQuery(string.Format("exec {0} '{1}'", ExtractProcedureName, SnapshotPath.FullName));
-			ConsoleWrite("CreateSnapshot Complete : " + (DateTime.Now - before));
+				var allTables = GetAllTables();
+				PerformBulkBackup(allTables);
+			});
 		}
 
-		/// <summary>
-		/// determine if the database has been modified
-		/// </summary>
-		/// <returns>true if modified.</returns>
+		void PrepareDataFresh()
+		{
+			Execute("Prepare DataFresh", () =>
+			{
+				var allTables = GetAllTables();
+
+				ExecuteNonQuery(@"
+					IF OBJECT_ID(N'[dbo].[df_ChangeTracking]', N'U') IS NOT NULL
+					BEGIN
+						DROP TABLE [dbo].[df_ChangeTracking]
+					END;
+
+					CREATE TABLE [dbo].[df_ChangeTracking] ([TableSchema] SYSNAME, [TableName] SYSNAME)"
+				);
+
+				ExecuteForEach(allTables, t => $@"
+					IF OBJECT_ID(N'[{t.Schema}].[trig_df_ChangeTracking_{t.Name}]') IS NOT NULL
+					BEGIN
+						DROP TRIGGER [{t.Schema}].[trig_df_ChangeTracking_{t.Name}]
+					END;
+					
+					EXEC (N'CREATE TRIGGER [{t.Schema}].[trig_df_ChangeTracking_{t.Name}] ON [{t.Schema}].[{t.Name}]
+					FOR INSERT, UPDATE, DELETE
+					AS
+					SET NOCOUNT ON
+					INSERT INTO df_ChangeTracking (TableSchema, TableName) VALUES (''{t.Schema}'', ''{t.Name}'')
+					SET NOCOUNT OFF');"
+				);
+			});
+		}
+
+		public void RemoveDataFreshFromDatabase()
+		{
+			Execute("Remove DataFresh", () =>
+			{
+				var allTables = GetAllTables();
+
+				ExecuteForEach(allTables, t => $@"
+					IF (OBJECT_ID(N'[{t.Schema}].[trig_df_ChangeTracking_{t.Name}]') IS NOT NULL)
+					BEGIN
+						DROP TRIGGER [{t.Schema}].[trig_df_ChangeTracking_{t.Name}]
+					END;
+
+					IF OBJECT_ID (N'[{t.Schema}].[{t.Name}{SnapshotTableSuffix}]', N'U') IS NOT NULL
+					BEGIN
+						DROP TABLE [{t.Schema}].[{t.Name}{SnapshotTableSuffix}];
+					END;"
+				);
+
+				ExecuteNonQuery(@"
+					IF OBJECT_ID (N'[dbo].[df_ChangeTracking]', N'U') IS NOT NULL
+						DROP TABLE [dbo].[df_ChangeTracking]"
+				);
+			});
+		}
+
+		public void RefreshTheDatabase()
+		{
+			GuardDatabaseIsPrepared();
+			Execute("Refresh", () =>
+			{
+				var changedAndReferencedTables = GetChangedAndReferencedTables();
+				var changedTables = GetChangedTables();
+
+				ExecuteNonQuery($"TRUNCATE TABLE [dbo].[{ChangeTrackingTableName}]");
+
+				ExecuteForEach(changedAndReferencedTables, t =>
+					$"ALTER TABLE [{t.Schema}].[{t.Name}] NOCHECK CONSTRAINT ALL;"
+				);
+
+				ExecuteForEach(changedTables, t => $@"
+					DELETE [{t.Schema}].[{t.Name}];
+					DELETE FROM df_ChangeTracking WHERE TableName='{t.Name}' and TableSchema='{t.Schema}';
+
+					IF (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+						WHERE table_schema = '{t.Schema}' AND table_name = '{t.Name}'
+						AND IDENT_SEED(TABLE_NAME) IS NOT NULL) > 0
+					BEGIN
+						DBCC CHECKIDENT([{t.Schema}.{t.Name}], RESEED, 0)
+					END"
+				);
+
+				PerformBulkRestore(changedTables);
+
+				ExecuteForEach(changedAndReferencedTables, t =>
+					$"ALTER TABLE [{t.Schema}].[{t.Name}] CHECK CONSTRAINT ALL;"
+				);
+			});
+		}
+
+		public void RefreshTheEntireDatabase()
+		{
+			GuardDatabaseIsPrepared();
+			Execute("Refresh (entire)", () =>
+			{
+				var allTables = GetAllTables();
+				var changedTables = GetChangedTables();
+				ExecuteNonQuery($"TRUNCATE TABLE [dbo].[{ChangeTrackingTableName}]");
+
+				ExecuteForEach(allTables, t =>
+					$"ALTER TABLE [{t.Schema}].[{t.Name}] NOCHECK CONSTRAINT ALL;"
+				);
+
+				ExecuteForEach(changedTables, t =>
+					$"DELETE FROM [{t.Schema}].[{t.Name}]"
+				);
+
+				PerformBulkRestore(changedTables);
+
+				ExecuteForEach(allTables, t =>
+					$"ALTER TABLE [{t.Schema}].[{t.Name}] CHECK CONSTRAINT ALL;"
+				);
+			});
+		}
+
 		public bool HasDatabaseBeenModified()
 		{
-			if (!TableExists(ChangeTrackingTableName))
-			{
-				throw new SqlDataFreshException("DataFresh procedure not found. Please prepare the database.");
-			}
-
-			string sql = string.Format(@"SELECT COUNT(*) FROM {0} WHERE TableName <> '{0}'", ChangeTrackingTableName);
-			int ret = Convert.ToInt32(ExecuteScalar(sql));
+			GuardDatabaseIsPrepared();
+			var sql =
+				$@"SELECT COUNT(*) FROM {ChangeTrackingTableName}
+				WHERE TableName <> 'ChangeTrackingTableName' 
+				AND TableName NOT LIKE '%{SnapshotTableSuffix}'";
+			var ret = Convert.ToInt32(ExecuteScalar(sql));
 			return ret > 0;
 		}
 
-		/// <summary>
-		/// location on the server where the snapshot files are located
-		/// </summary>
-		public DirectoryInfo SnapshotPath
+		public void RunStatements(IEnumerable<string> statements)
 		{
-			get
+			var cb = new StringBuilder();
+			const int maxLength = 6000;
+			var currentLength = 0;
+			foreach (var statement in statements)
 			{
-				if (snapshotPath == null)
-				{
-					return GetSnapshopPath();
-				}
-				return snapshotPath;
+				if (currentLength + statement.Length > maxLength)
+					Flush();
+
+				currentLength += statement.Length;
+				cb.Append(statement);
 			}
-			set
+
+			if (currentLength > 0)
+				Flush();
+
+			void Flush()
 			{
-				snapshotPath = CheckForIllegalCharsAndAppendTrailingSlash(value);
+				ExecuteNonQuery(cb.ToString());
+				cb.Clear();
+				currentLength = 0;
 			}
 		}
 
-		#endregion
-
-		#region Private Methods
-
-		private static DirectoryInfo CheckForIllegalCharsAndAppendTrailingSlash(DirectoryInfo value)
+		void PerformBulkBackup(IReadOnlyCollection<TableMetadata> tables)
 		{
-			if(value == null)
-			{
-				return null;
-			}
-			string path = value.FullName;
-			path = path.Replace("\"", "");
-			if(!path.EndsWith(@"\"))
-			{
-				path += @"\";
-			}
-			return new DirectoryInfo(path);
-		}	
-		
-		private object ExecuteScalar(string sql)
+			PerformBulkOperation(tables, backup: true);
+		}
+
+		void PerformBulkRestore(IReadOnlyCollection<TableMetadata> tables)
 		{
-			using (SqlConnection conn = new SqlConnection(connectionString))
+			PerformBulkOperation(tables, backup: false);
+		}
+
+		void PerformBulkOperation(IReadOnlyCollection<TableMetadata> tables, bool backup)
+		{
+			var destinationSuffix = backup ? SnapshotTableSuffix : string.Empty;
+			var sourceSuffix = backup ? string.Empty : SnapshotTableSuffix;
+
+			if (backup)
 			{
-				sql = sql + " --dataProfilerIgnore";
-				SqlCommand cmd = new SqlCommand(sql, conn);
-				cmd.CommandTimeout = 1200;
+				ExecuteForEach(tables, t =>
+				{
+					var sourceTable = $"[{t.Schema}].[{t.Name}{sourceSuffix}]";
+					var destinationTable = $"[{t.Schema}].[{t.Name}{destinationSuffix}]";
+
+					return $@"
+						IF OBJECT_ID (N'{destinationTable}', N'U') IS NULL BEGIN
+							SELECT * INTO {destinationTable} FROM {sourceTable} WHERE 1=2 END 
+						ELSE BEGIN
+							TRUNCATE TABLE {destinationTable}
+						END;";
+				});
+			}
+
+			foreach (var table in tables)
+			{
+				var sourceTable = $"[{table.Schema}].[{table.Name}{sourceSuffix}]";
+				var destinationTable = $"[{table.Schema}].[{table.Name}{destinationSuffix}]";
+
+				CopyTable(connectionString, sourceTable, destinationTable);
+			}
+		}
+
+		static void CopyTable(string dbConnectionString, string sourceTable, string destinationTable)
+		{
+			using (var sourceConnection = new SqlConnection(dbConnectionString))
+			{
+				sourceConnection.Open();
+				var commandSourceData = new SqlCommand($"SELECT * FROM {sourceTable};", sourceConnection);
+				var reader = commandSourceData.ExecuteReader();
+
+				using (var destinationConnection = new SqlConnection(dbConnectionString))
+				{
+					destinationConnection.Open();
+
+					using (var bulkCopy = new SqlBulkCopy(destinationConnection))
+					{
+						bulkCopy.DestinationTableName = destinationTable;
+						try
+						{
+							bulkCopy.WriteToServer(reader);
+						}
+						catch (Exception ex)
+						{
+							Console.WriteLine(ex.Message);
+						}
+						finally
+						{
+							reader.Close();
+						}
+					}
+				}
+			}
+		}
+
+		object ExecuteScalar(string sql)
+		{
+			using (var conn = new SqlConnection(connectionString))
+			{
+				sql += " --dataProfilerIgnore";
+				var cmd = new SqlCommand(sql, conn) { CommandTimeout = 1200 };
 				conn.Open();
 				return cmd.ExecuteScalar();
 			}
 		}
 
-		private void ExecuteNonQuery(string sql)
+		void ExecuteNonQuery(string sql)
 		{
-			using (SqlConnection conn = new SqlConnection(connectionString))
+			using (var conn = new SqlConnection(connectionString))
 			{
-				sql = sql + " --dataProfilerIgnore";
-				SqlCommand cmd = new SqlCommand(sql, conn);
-				cmd.CommandTimeout = 1200;
 				conn.Open();
-				cmd.ExecuteNonQuery();
+				sql += " --dataProfilerIgnore";
+				using (var cmd = new SqlCommand(sql, conn) { CommandTimeout = 1200 })
+					cmd.ExecuteNonQuery();
 			}
 		}
 
-		private DirectoryInfo GetSnapshopPath()
+		void ConsoleWrite(string message)
 		{
-			string dbName = (string) ExecuteScalar("SELECT DB_Name()");
-			string mdfFilePath = Path.GetDirectoryName(ExecuteScalar("select filename from sysfiles where filename like '%.MDF%'").ToString().Trim());
-			return new DirectoryInfo(string.Format(@"{0}\Snapshot_{1}\", mdfFilePath, dbName));
-		}
-
-		private void RunSqlScript(StreamReader reader)
-		{
-			string line = "";
-			StringBuilder cmd = new StringBuilder();
-			while ((line = reader.ReadLine()) != null)
-			{
-				if (line.Trim().ToLower().Equals("go"))
-				{
-					ExecuteNonQuery(cmd.ToString());
-					cmd.Length = 0;
-				}
-				else
-				{
-					cmd.Append(line);
-					cmd.Append(Environment.NewLine);
-				}
-			}
-			if (cmd.ToString().Trim().Length > 0)
-			{
-				ExecuteNonQuery(cmd.ToString());
-			}
-		}
-
-		private void ConsoleWrite(string message)
-		{
-			if(this.verbose)
-			{
+			if (verbose)
 				Console.Out.WriteLine(message);
+		}
+
+		void Execute(string actionName, Action action)
+		{
+			var stopWatch = new Stopwatch();
+			ConsoleWrite($"{actionName} for {databaseName} started");
+			stopWatch.Start();
+			try
+			{
+				action();
+			}
+			finally
+			{
+				stopWatch.Stop();
+				ConsoleWrite($"{actionName} for {databaseName} complete: {stopWatch.Elapsed}");
 			}
 		}
 
-		#endregion
+		void ExecuteForEach(IEnumerable<TableMetadata> tables, Func<TableMetadata, string> func)
+		{
+			RunStatements(tables.Select(func));
+		}
+
+		IReadOnlyCollection<TableMetadata> SelectTables(string sql)
+		{
+			var tables = new List<TableMetadata>();
+			using (var conn = new SqlConnection(connectionString))
+			{
+				conn.Open();
+				using (var cmd = new SqlCommand(sql, conn))
+				using (var reader = cmd.ExecuteReader())
+				{
+					while (reader.Read())
+					{
+						tables.Add(new TableMetadata
+						{
+							Schema = reader.GetString(0),
+							Name = reader.GetString(1)
+						});
+					}
+				}
+			}
+			return tables;
+		}
+
+		void GuardDatabaseIsPrepared()
+		{
+			if (!TableExists(ChangeTrackingTableName))
+				throw new SqlDataFreshException(
+					$"DataFresh table ({ChangeTrackingTableName}) not found. Please prepare the database.");
+		}
+
+		IReadOnlyCollection<TableMetadata> GetAllTables()
+		{
+			var sql =
+				$@"SELECT table_schema, table_name
+				FROM Information_Schema.tables
+				WHERE table_type = 'BASE TABLE'
+					AND table_name NOT IN ('df_ChangeTracking', 'dr_DeltaVersion')
+					AND table_name NOT LIKE '%{SnapshotTableSuffix}'";
+
+			var tables = SelectTables(sql);
+			return tables;
+		}
+
+		IReadOnlyCollection<TableMetadata> GetChangedTables()
+		{
+			var sql =
+				$@"SELECT DISTINCT TableSchema, TableName
+				FROM df_ChangeTracking
+				WHERE TableName NOT IN ('df_ChangeTracking', 'dr_DeltaVersion')
+				AND TableName NOT LIKE '%{SnapshotTableSuffix}'";
+
+			var tables = SelectTables(sql);
+			return tables;
+		}
+
+		IReadOnlyCollection<TableMetadata> GetChangedAndReferencedTables()
+		{
+			var sql = $@"
+				SELECT DISTINCT x.TableSchema, x.TableName
+				FROM (
+					SELECT DISTINCT TableSchema, TableName
+					FROM df_ChangeTracking 
+					UNION
+					SELECT DISTINCT
+						OBJECT_SCHEMA_NAME(fkeyid) AS TableSchema,
+						OBJECT_NAME(fkeyid) AS TableName
+					FROM sysreferences sr 
+					INNER JOIN df_ChangeTracking ct ON sr.rkeyid = OBJECT_ID(ct.TableName)
+				) x
+				WHERE x.TableName NOT IN ('df_ChangeTracking', 'dr_DeltaVersion')
+					AND x.TableName NOT LIKE '%{SnapshotTableSuffix}'
+			";
+
+			var tables = SelectTables(sql);
+			return tables;
+		}
+
+		public bool TableExists(string tableName)
+		{
+			var tableCount = int.Parse(ExecuteScalar(
+				$"SELECT COUNT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='{tableName}'").ToString());
+			return (tableCount > 0);
+		}
 	}
 }

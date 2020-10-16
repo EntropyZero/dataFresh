@@ -16,8 +16,6 @@
 // Free Software Foundation, Inc., 
 // 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
 
-using System.IO;
-
 namespace DataFresh
 {
 	public interface IDataFresh
@@ -25,7 +23,7 @@ namespace DataFresh
 		/// <summary>
 		/// prepare the database to use the dataFresh library
 		/// </summary>
-		void PrepareDatabaseforDataFresh();
+		void PrepareDatabaseForDataFresh();
 
 		/// <summary>
 		/// refresh the database to a known state
@@ -47,19 +45,5 @@ namespace DataFresh
 		/// refresh the database ignoring the dataFresh change tracking table.
 		/// </summary>
 		void RefreshTheEntireDatabase();
-
-		/// <summary>
-		/// create snapshot of database
-		/// </summary>
-		void CreateSnapshot();
-
-		/// <summary>
-		/// location on the server where the snapshot files are located
-		/// </summary>
-		DirectoryInfo SnapshotPath
-		{
-			get; 
-			set;
-		}
 	}
 }

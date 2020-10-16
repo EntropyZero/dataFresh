@@ -90,9 +90,6 @@
     <Compile Include="IDataFresh.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="ResourceManagement.cs">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="SqlDataFresh.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -100,9 +97,8 @@
       <SubType>Code</SubType>
     </Compile>
     <Content Include="Readme.txt" />
-    <EmbeddedResource Include="Resources\PrepareDataFresh.sql" />
-    <EmbeddedResource Include="Resources\RemoveDataFresh.sql" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PreBuildEvent />
